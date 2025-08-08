@@ -1,8 +1,11 @@
+/* 重設 body 的預設邊界與邊距，並隱藏捲軸 */
 body {
     margin: 0;
-    overflow: hidden; /* Hide scrollbars */
+    overflow: hidden;
+    background-color: #000; /* 讓畫布外的區域為黑色 */
 }
 
+/* 讓畫布成為一個塊級元素，避免產生不必要的空白 */
 canvas {
     display: block;
 }

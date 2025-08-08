@@ -1,68 +1,104 @@
+// --- 1. 全域變數與初始化 ---
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Set canvas size
+// 設定畫布大小
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// Game world properties
+// 遊戲世界設定
 const world = {
     width: 3000,
     height: 3000,
-    backgroundColor: '#3d823d' // A grassy green color
+    backgroundColor: '#2c3e50', // 深藍色背景
+    gridColor: 'rgba(255, 255, 255, 0.08)'
 };
 
-// Camera/viewport properties
+// 攝影機/視口設定
 const camera = {
     x: 0,
     y: 0,
     width: canvas.width,
     height: canvas.height,
-    scrollSpeed: 10,
-    scrollMargin: 50 // Distance from edge to start scrolling
+    scrollSpeed: 15,
+    scrollMargin: 60 // 滑鼠離邊緣多近時開始捲動
 };
 
-// Mouse position
+// 滑鼠狀態
 const mouse = {
     x: 0,
-    y: 0
+    y: 0,
+    isDown: false,
+    button: -1
 };
 
-// --- Game Objects ---
-const gameObjects = [];
+// 遊戲物件管理
+const gameObjects = []; // 儲存所有單位
+let selectedObjects = []; // 儲存被選取的單位
+
+// --- 2. 遊戲核心類別 (Unit) ---
 
 class Unit {
-    constructor(x, y, size, color) {
+    constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.size = size;
-        this.color = color;
+        this.size = 40;
+        this.color = '#e74c3c'; // 紅色
+        this.selectedColor = '#2ecc71'; // 綠色
+        this.speed = 3;
         this.isSelected = false;
+
+        this.target = null; // 移動目標 {x, y}
     }
 
+    // 更新單位狀態 (例如：移動)
+    update() {
+        if (this.target) {
+            const dx = this.target.x - this.x;
+            const dy = this.target.y - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < this.speed) {
+                // 已到達目標
+                this.x = this.target.x;
+                this.y = this.target.y;
+                this.target = null;
+            } else {
+                // 朝目標移動
+                this.x += (dx / distance) * this.speed;
+                this.y += (dy / distance) * this.speed;
+            }
+        }
+    }
+
+    // 繪製單位到畫布上
     draw(ctx) {
-        // Draw the unit
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
 
-        // Draw selection indicator
+        // 如果被選取，畫出選取框
         if (this.isSelected) {
-            ctx.strokeStyle = '#00FF00'; // Bright green for visibility
+            ctx.strokeStyle = this.selectedColor;
             ctx.lineWidth = 3;
             ctx.strokeRect(this.x - this.size / 2 - 3, this.y - this.size / 2 - 3, this.size + 6, this.size + 6);
         }
     }
 
-    update() {
-        // Future unit logic will go here (e.g., movement)
+    // 檢查一個點是否在單位內部
+    isClicked(pointX, pointY) {
+        return (
+            pointX >= this.x - this.size / 2 &&
+            pointX <= this.x + this.size / 2 &&
+            pointY >= this.y - this.size / 2 &&
+            pointY <= this.y + this.size / 2
+        );
     }
 }
 
-// Create some units
-gameObjects.push(new Unit(300, 300, 40, '#d93a3a')); // Red unit
-gameObjects.push(new Unit(500, 400, 40, '#4a7bd9')); // Blue unit
+// --- 3. 事件監聽器 ---
 
-// --- Event Listeners ---
+// 監聽視窗大小改變
 window.addEventListener('resize', () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -70,82 +106,98 @@ window.addEventListener('resize', () => {
     camera.height = canvas.height;
 });
 
+// 監聽滑鼠移動
 document.addEventListener('mousemove', (e) => {
     mouse.x = e.clientX;
     mouse.y = e.clientY;
 });
 
-canvas.addEventListener('click', (e) => {
-    // Convert screen click coords to world coords
-    const worldX = e.clientX + camera.x;
-    const worldY = e.clientY + camera.y;
+// **核心功能：禁用右鍵選單**
+canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+});
 
-    // Deselect all units first (unless holding Shift)
-    if (!e.shiftKey) {
+// 監聽滑鼠按下事件
+canvas.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    mouse.isDown = true;
+    mouse.button = e.button;
+
+    // 將螢幕座標轉換為世界座標
+    const worldX = mouse.x + camera.x;
+    const worldY = mouse.y + camera.y;
+
+    // 處理左鍵點擊 (e.button === 0)
+    if (mouse.button === 0) {
+        // 清除所有單位的選取狀態
+        selectedObjects = [];
         gameObjects.forEach(unit => unit.isSelected = false);
+
+        // 檢查是否點擊到任何單位
+        let unitClicked = false;
+        for (const unit of gameObjects) {
+            if (unit.isClicked(worldX, worldY)) {
+                unit.isSelected = true;
+                selectedObjects.push(unit);
+                unitClicked = true;
+                break; // 只選取最上層的一個
+            }
+        }
     }
 
-    // Check if a unit was clicked
-    let unitClicked = false;
-    for (const unit of gameObjects) {
-        if (
-            worldX >= unit.x - unit.size / 2 &&
-            worldX <= unit.x + unit.size / 2 &&
-            worldY >= unit.y - unit.size / 2 &&
-            worldY <= unit.y + unit.size / 2
-        ) {
-            unit.isSelected = !unit.isSelected; // Toggle selection
-            unitClicked = true;
-            break; // Stop after finding one unit
+    // 處理右鍵點擊 (e.button === 2)
+    if (mouse.button === 2) {
+        if (selectedObjects.length > 0) {
+            // 命令所有選取的單位移動到目標點
+            selectedObjects.forEach(unit => {
+                unit.target = { x: worldX, y: worldY };
+            });
         }
     }
 });
 
+// 監聽滑鼠放開事件
+canvas.addEventListener('mouseup', (e) => {
+    mouse.isDown = false;
+    mouse.button = -1;
+});
 
-// --- Game Logic ---
+
+// --- 4. 遊戲主迴圈 ---
+
+// 更新所有遊戲邏輯
 function update() {
-    // Update all game objects
-    gameObjects.forEach(obj => obj.update());
+    // 根據滑鼠位置捲動攝影機
+    if (mouse.x > canvas.width - camera.scrollMargin) camera.x += camera.scrollSpeed;
+    if (mouse.x < camera.scrollMargin) camera.x -= camera.scrollSpeed;
+    if (mouse.y > canvas.height - camera.scrollMargin) camera.y += camera.scrollSpeed;
+    if (mouse.y < camera.scrollMargin) camera.y -= camera.scrollSpeed;
 
-    // Scroll camera based on mouse position
-    // Scroll right
-    if (mouse.x > canvas.width - camera.scrollMargin) {
-        camera.x += camera.scrollSpeed;
-    }
-    // Scroll left
-    if (mouse.x < camera.scrollMargin) {
-        camera.x -= camera.scrollSpeed;
-    }
-    // Scroll down
-    if (mouse.y > canvas.height - camera.scrollMargin) {
-        camera.y += camera.scrollSpeed;
-    }
-    // Scroll up
-    if (mouse.y < camera.scrollMargin) {
-        camera.y -= camera.scrollSpeed;
-    }
-
-    // Clamp camera to world boundaries
+    // 限制攝影機在世界範圍內
     camera.x = Math.max(0, Math.min(camera.x, world.width - camera.width));
     camera.y = Math.max(0, Math.min(camera.y, world.height - camera.height));
+
+    // 更新所有遊戲物件
+    gameObjects.forEach(obj => obj.update());
 }
 
+// 繪製所有遊戲內容
 function draw() {
-    // Clear the canvas
+    // 清除畫布
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Save context state
+    // 儲存當前繪圖狀態
     ctx.save();
 
-    // Translate context to camera position
+    // 將原點移動到攝影機位置，實現捲動效果
     ctx.translate(-camera.x, -camera.y);
 
-    // Draw the world background
+    // 繪製世界背景
     ctx.fillStyle = world.backgroundColor;
     ctx.fillRect(0, 0, world.width, world.height);
 
-    // Example: Draw a grid
-    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+    // 繪製網格
+    ctx.strokeStyle = world.gridColor;
     ctx.lineWidth = 1;
     for (let x = 0; x <= world.width; x += 100) {
         ctx.beginPath();
@@ -160,22 +212,28 @@ function draw() {
         ctx.stroke();
     }
 
-    // Draw all game objects
+    // 繪製所有遊戲物件
     gameObjects.forEach(obj => obj.draw(ctx));
 
-    // Restore context state
+    // 恢復繪圖狀態
     ctx.restore();
-
-    // --- Draw UI elements here in the future (not affected by camera) ---
 }
 
-// --- Main Game Loop ---
+// 遊戲主迴圈
 function gameLoop() {
     update();
     draw();
     requestAnimationFrame(gameLoop);
 }
 
-// Start the game
-console.log("Starting Web RTS Game...");
-gameLoop();
+// --- 5. 遊戲啟動 ---
+function startGame() {
+    // 創建一個初始單位
+    const initialUnit = new Unit(300, 300);
+    gameObjects.push(initialUnit);
+
+    console.log("遊戲開始：Iron Conflict");
+    gameLoop();
+}
+
+startGame();
